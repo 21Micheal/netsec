@@ -1,0 +1,7 @@
+# Network Security Automation Worker Requirements
+redis>=5.0.0
+psycopg2-binary>=2.9.9
+xmltodict>=0.13.0
+rq>=1.15.0
+Openssl>=24.0.0
+python-dotenv>=1.0.0
