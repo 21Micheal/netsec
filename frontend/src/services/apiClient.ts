@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import { API_BASE_URL } from '../config/runtime';
 
 // Define response data structure
 export interface ApiResponse<T = any> {
@@ -28,7 +29,7 @@ class ApiClient {
 
   constructor(config: ApiClientConfig = {}) {
     this.client = axios.create({
-      baseURL: config.baseURL || (typeof window !== 'undefined' && (window as any).REACT_APP_API_BASE_URL) || 'http://localhost:5000',
+      baseURL: config.baseURL || API_BASE_URL,
       timeout: config.timeout || 30000,
       headers: {
         'Content-Type': 'application/json',

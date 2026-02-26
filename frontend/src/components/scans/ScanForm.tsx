@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import { API_BASE_URL } from "../../config/runtime";
 
 type Props = {
   onCreated?: (jobId: string) => void; // callback when job created
@@ -23,7 +22,7 @@ export default function StartScanForm({ onCreated }: Props) {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/scans/combined`, {
+      const res = await fetch(`${API_BASE_URL}/scans/combined`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target, profile }),

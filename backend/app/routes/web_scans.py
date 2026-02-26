@@ -1,46 +1,23 @@
 from flask import Blueprint, request, jsonify
+from app.auth import require_auth
 from app.models import ScanJob, WebScanResult
-from app.extensions import db, socketio
-# from app.workers.tasks import enqueue_web_scan
-import uuid
+from app.routes.scans import create_and_queue_scan, normalize_target
 
 web_bp = Blueprint("web_scans", __name__)
 
 @web_bp.route("/web-scans", methods=["POST", "OPTIONS"])
+@require_auth()
 def start_web_scan():
     if request.method == "OPTIONS":
         return jsonify({"status": "ok"}), 200
         
     try:
-        data = request.get_json()
-        url = data.get("url")
-        profile = data.get("profile", "web")
-
+        data = request.get_json(silent=True) or {}
+        url = normalize_target(data.get("url", ""))
         if not url:
             return jsonify({"error": "URL is required"}), 400
 
-        # Create the scan job
-        job = ScanJob(
-            id=uuid.uuid4(),
-            target=url,
-            profile=profile,
-            status="queued",
-        )
-        db.session.add(job)
-        db.session.commit()
-
-        # Emit socket event for new scan
-        socketio.emit("scan_update", {
-            "job_id": str(job.id),
-            "status": job.status.value,
-            "progress": job.progress,
-            "target": job.target,
-            "profile": job.profile
-        })
-
-        # Queue the web scan task
-        from app.workers.tasks import enqueue_web_scan
-        enqueue_web_scan.delay(str(job.id), url, profile)
+        job = create_and_queue_scan(target=url, profile="web")
         
         return jsonify({
             "id": str(job.id),
@@ -50,13 +27,13 @@ def start_web_scan():
             "status": job.status.value,
             "progress": job.progress,
             "created_at": job.created_at.isoformat()
-        }), 202
+        }), 201
         
     except Exception as e:
-        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 @web_bp.route("/web-scans/results/<job_id>", methods=["GET", "OPTIONS"])
+@require_auth()
 def get_web_scan_results(job_id):
     if request.method == "OPTIONS":
         return jsonify({"status": "ok"}), 200
@@ -78,6 +55,7 @@ def get_web_scan_results(job_id):
 
 # Additional endpoint to get all web scan jobs
 @web_bp.route("/web-scans/jobs", methods=["GET", "OPTIONS"])
+@require_auth()
 def get_web_scan_jobs():
     if request.method == "OPTIONS":
         return jsonify({"status": "ok"}), 200

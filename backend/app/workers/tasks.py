@@ -291,6 +291,7 @@ def enqueue_scan_job(job_id: str, target: str, profile: str = "default"):
             print(f"❌ Scan failed: {str(scan_error)}")
             import traceback
             traceback.print_exc()
+            db.session.rollback()
             
             job.status = JobStatus.failed
             job.progress = 0
@@ -505,16 +506,17 @@ def retry_scan_job(job_id: str):
 
 def get_nmap_arguments(profile: str) -> list:
     """Get nmap arguments based on scan profile"""
-    nmap_args = []
-    if profile == "quick":
-        nmap_args = ["-T4", "-F"]  # Fast scan
-    elif profile == "detailed":
-        nmap_args = ["-sV", "-sC", "-O"]  # Version detection, scripts, OS detection
-    elif profile == "comprehensive":
-        nmap_args = ["-sV", "-sC", "-A", "-O"]  # Aggressive scan
-    # Default profile uses basic TCP connect scan
-    
-    return nmap_args
+    normalized = (profile or "default").strip().lower()
+    profile_map = {
+        "default": ["-T3", "-sV"],
+        "quick": ["-T4", "-F"],
+        "fast": ["-T4", "-F"],
+        "detailed": ["-sV", "-sC"],
+        "comprehensive": ["-sV", "-sC", "-A"],
+        "full": ["-sV", "-sC", "-A"],
+        "safe": ["-sV", "--open"],
+    }
+    return profile_map.get(normalized, profile_map["default"])
 
 def process_scan_results(job_id: str, target: str, nmap_results: dict):
     """Process and store nmap scan results"""
@@ -526,15 +528,18 @@ def process_scan_results(job_id: str, target: str, nmap_results: dict):
         if not job:
             return
         
+        target_metadata = collect_target_metadata(target)
         insights = {
             'target': target,
+            'target_metadata': target_metadata,
             'open_ports': [],
             'services': [],
             'security_indicators': [],
             'summary': {
                 'total_open_ports': 0,
                 'unique_services': 0,
-                'risk_level': 'LOW'
+                'risk_level': 'LOW',
+                'resolves_to': target_metadata.get('resolved_ips', [])
             }
         }
         
@@ -582,38 +587,69 @@ def process_scan_results(job_id: str, target: str, nmap_results: dict):
         traceback.print_exc()
 
 def extract_open_ports(nmap_results: dict) -> list:
-    """Extract open ports from nmap results"""
+    """Extract open ports from both xmltodict and python-nmap output structures."""
     open_ports = []
-    
+
+    def append_port(port: int, protocol: str, service: str, version: str = "", product: str = ""):
+        if not port:
+            return
+        open_ports.append({
+            'port': int(port),
+            'protocol': protocol or 'tcp',
+            'service': service or 'unknown',
+            'version': version or '',
+            'product': product or '',
+            'state': 'open'
+        })
+
     try:
+        # xmltodict structure from `nmap -oX -`
         if 'nmaprun' in nmap_results:
             hosts = nmap_results['nmaprun'].get('host', [])
             if not isinstance(hosts, list):
                 hosts = [hosts] if hosts else []
-            
+
             for host in hosts:
                 if 'ports' in host and 'port' in host['ports']:
                     ports = host['ports']['port']
                     if not isinstance(ports, list):
                         ports = [ports] if ports else []
-                    
+
                     for port_info in ports:
                         state = port_info.get('state', {}).get('@state', 'unknown')
                         if state == 'open':
                             service_info = port_info.get('service', {})
-                            port_data = {
-                                'port': int(port_info.get('@portid', 0)),
-                                'protocol': port_info.get('@protocol', 'tcp'),
-                                'service': service_info.get('@name', 'unknown'),
-                                'version': service_info.get('@version', ''),
-                                'product': service_info.get('@product', ''),
-                                'state': state
-                            }
-                            open_ports.append(port_data)
+                            append_port(
+                                port=int(port_info.get('@portid', 0)),
+                                protocol=port_info.get('@protocol', 'tcp'),
+                                service=service_info.get('@name', 'unknown'),
+                                version=service_info.get('@version', ''),
+                                product=service_info.get('@product', '')
+                            )
+
+        # python-nmap structure from PortScanner conversion in nmap_runner.py
+        if 'scan' in nmap_results and isinstance(nmap_results.get('scan'), dict):
+            for _host, host_data in nmap_results['scan'].items():
+                protocols = host_data.get('protocols', {})
+                if not isinstance(protocols, dict):
+                    continue
+                for proto, ports in protocols.items():
+                    for port_info in ports or []:
+                        if port_info.get('state') == 'open':
+                            append_port(
+                                port=port_info.get('port'),
+                                protocol=proto or 'tcp',
+                                service=port_info.get('name') or 'unknown',
+                                version=port_info.get('version') or '',
+                                product=port_info.get('product') or ''
+                            )
     except Exception as e:
         print(f"⚠️ Error extracting open ports: {e}")
-    
-    return open_ports
+
+    deduped = {}
+    for item in open_ports:
+        deduped[(item["port"], item["protocol"])] = item
+    return list(deduped.values())
 
 def generate_basic_security_indicators(open_ports: list) -> list:
     """Generate basic security indicators from open ports"""
@@ -642,6 +678,15 @@ def generate_basic_security_indicators(open_ports: list) -> list:
                 'port': port,
                 'service': port_data['service']
             })
+
+        if port_data.get('service') in {'http', 'https'} and port_data.get('version'):
+            indicators.append({
+                'type': 'VERSION_DISCLOSURE',
+                'severity': 'LOW',
+                'message': f"Service version exposed on port {port}: {port_data.get('version')}",
+                'port': port,
+                'service': port_data['service']
+            })
     
     return indicators
 
@@ -656,6 +701,34 @@ def calculate_simple_risk_level(open_ports: list) -> str:
         return 'MEDIUM'
     else:
         return 'LOW'
+
+def collect_target_metadata(target: str) -> dict:
+    """Collect DNS and basic target metadata for improved scan context."""
+    metadata = {
+        "input_target": target,
+        "normalized_target": target,
+        "resolved_ips": [],
+        "reverse_dns": None,
+        "dns_error": None,
+    }
+    try:
+        normalized = target
+        if "://" in normalized:
+            normalized = normalized.split("://", 1)[1]
+        normalized = normalized.split("/", 1)[0]
+        normalized = normalized.split(":", 1)[0]
+        metadata["normalized_target"] = normalized
+
+        _, _, ips = socket.gethostbyname_ex(normalized)
+        metadata["resolved_ips"] = sorted(set(ips))
+        if metadata["resolved_ips"]:
+            try:
+                metadata["reverse_dns"] = socket.gethostbyaddr(metadata["resolved_ips"][0])[0]
+            except Exception:
+                metadata["reverse_dns"] = None
+    except Exception as exc:
+        metadata["dns_error"] = str(exc)
+    return metadata
 
 def create_web_insights(url: str, web_results: dict, analysis_results: dict) -> dict:
     """Create insights structure for web scans"""
@@ -1825,5 +1898,3 @@ def discover_services(target: str) -> List[Dict]:
     # This would integrate with nmap or other discovery tools
     # Simplified implementation
     return []
-
-

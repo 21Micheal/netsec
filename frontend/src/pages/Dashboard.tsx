@@ -38,16 +38,7 @@ const Dashboard: React.FC = () => {
   const [showEnhancedForm, setShowEnhancedForm] = useState(false);
   
 
-  const { lastMessage, isConnected, subscribeToJob, unsubscribeFromJob, debugSubscriptions } = useSocket();
-
-  // Add debug button to your header
-  <button
-    onClick={debugSubscriptions}
-    className="text-xs text-gray-500 hover:text-gray-400"
-    title="Debug Subscriptions"
-  >
-    🐛
-  </button>
+  const { lastMessage, isConnected, subscribeToJob, unsubscribeFromJob } = useSocket();
   
   // Refs to track state without causing re-renders
   const scansRef = useRef<ScanJob[]>([]);
@@ -134,6 +125,15 @@ const Dashboard: React.FC = () => {
       }, 1000);
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  const handleCancelScan = async (jobId: string) => {
+    try {
+      await apiService.cancelScan(jobId);
+      await fetchDashboardData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to cancel scan');
     }
   };
 
@@ -714,6 +714,14 @@ const Dashboard: React.FC = () => {
                               className="text-green-400 hover:text-green-300 text-sm font-medium"
                             >
                               Retry
+                            </button>
+                          )}
+                          {(scan.status === 'queued' || scan.status === 'running') && (
+                            <button
+                              onClick={() => handleCancelScan(scan.id)}
+                              className="text-orange-400 hover:text-orange-300 text-sm font-medium"
+                            >
+                              Cancel
                             </button>
                           )}
                         </div>

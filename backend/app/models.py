@@ -3,6 +3,7 @@ import enum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # --- Enumerations ---
 class JobStatus(str, enum.Enum):
@@ -148,7 +149,7 @@ class ScanResult(db.Model):
     service = db.Column(db.Text, nullable=True)
     version = db.Column(db.Text, nullable=True)
     raw_output = db.Column(JSONB, nullable=True)
-    discovered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationship
     job = db.relationship("ScanJob", back_populates="results") # Kept back_populates="results"
@@ -163,7 +164,7 @@ class ScanResult(db.Model):
             "service": self.service,
             "version": self.version,
             "raw_output": self.raw_output,
-            "discovered_at": self.discovered_at.isoformat() if self.discovered_at else None
+            "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
 class WebScanResult(db.Model):
@@ -252,4 +253,142 @@ class IntelligenceReport(db.Model):
             "risk_score": self.data.get('risk_assessment', {}).get('risk_score', 0) if self.data else 0,
             "generated_at": self.generated_at.isoformat(),
             "findings_count": len(self.data.get('vulnerabilities', [])) if self.data else 0
+        }
+
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.Text, nullable=False)
+    role = db.Column(db.String(32), nullable=False, default="admin")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    job_access = db.relationship("ScanJobAccess", back_populates="user", cascade="all, delete-orphan")
+    audit_events = db.relationship("AuditEvent", back_populates="actor", cascade="all, delete-orphan")
+
+    def set_password(self, raw_password: str) -> None:
+        self.password_hash = generate_password_hash(raw_password)
+
+    def check_password(self, raw_password: str) -> bool:
+        return check_password_hash(self.password_hash, raw_password)
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "username": self.username,
+            "role": self.role,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,
+        }
+
+
+class ScanJobAccess(db.Model):
+    __tablename__ = "scan_job_access"
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(UUID(as_uuid=True), db.ForeignKey("scan_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    access_level = db.Column(db.String(20), nullable=False, default="owner")
+    granted_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("job_id", "user_id", name="uq_scan_job_user"),)
+
+    user = db.relationship("User", back_populates="job_access")
+
+    def to_dict(self):
+        return {
+            "job_id": str(self.job_id),
+            "user_id": str(self.user_id),
+            "access_level": self.access_level,
+            "granted_at": self.granted_at.isoformat() if self.granted_at else None,
+        }
+
+
+class AuditEvent(db.Model):
+    __tablename__ = "audit_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    actor_id = db.Column(UUID(as_uuid=True), db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_username = db.Column(db.String(80), nullable=True)
+    action = db.Column(db.String(120), nullable=False, index=True)
+    resource_type = db.Column(db.String(60), nullable=False, index=True)
+    resource_id = db.Column(db.String(120), nullable=True, index=True)
+    status = db.Column(db.String(20), nullable=False, default="success")
+    details = db.Column(JSONB, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    actor = db.relationship("User", back_populates="audit_events")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "actor_id": str(self.actor_id) if self.actor_id else None,
+            "actor_username": self.actor_username,
+            "action": self.action,
+            "resource_type": self.resource_type,
+            "resource_id": self.resource_id,
+            "status": self.status,
+            "details": self.details or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ScanPlaybook(db.Model):
+    __tablename__ = "scan_playbooks"
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id = db.Column(UUID(as_uuid=True), db.ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    name = db.Column(db.String(140), nullable=False)
+    target = db.Column(db.Text, nullable=False)
+    profile = db.Column(db.String(40), nullable=False, default="default")
+    schedule_minutes = db.Column(db.Integer, nullable=False, default=60)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    tags = db.Column(JSONB, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_run_at = db.Column(db.DateTime, nullable=True)
+    last_job_id = db.Column(UUID(as_uuid=True), db.ForeignKey("scan_jobs.id"), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "owner_id": str(self.owner_id) if self.owner_id else None,
+            "name": self.name,
+            "target": self.target,
+            "profile": self.profile,
+            "schedule_minutes": self.schedule_minutes,
+            "enabled": self.enabled,
+            "tags": self.tags or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
+            "last_job_id": str(self.last_job_id) if self.last_job_id else None,
+        }
+
+
+class ScanDiffReport(db.Model):
+    __tablename__ = "scan_diff_reports"
+
+    id = db.Column(db.Integer, primary_key=True)
+    old_job_id = db.Column(UUID(as_uuid=True), db.ForeignKey("scan_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    new_job_id = db.Column(UUID(as_uuid=True), db.ForeignKey("scan_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    generated_by = db.Column(UUID(as_uuid=True), db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    diff = db.Column(JSONB, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (db.UniqueConstraint("old_job_id", "new_job_id", name="uq_scan_diff_pair"),)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "old_job_id": str(self.old_job_id),
+            "new_job_id": str(self.new_job_id),
+            "generated_by": str(self.generated_by) if self.generated_by else None,
+            "diff": self.diff,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }

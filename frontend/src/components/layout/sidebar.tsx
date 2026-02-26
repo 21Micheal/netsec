@@ -2,20 +2,16 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
-  Activity,
   FileSearch,
-  ListChecks,
-  Bell,
   Settings,
-  Shield,
+  AlertTriangle,
 } from "lucide-react";
 
 const Sidebar: React.FC = () => {
   const navItems = [
-    { path: "/", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/risks", label: "Risk Dashboard", icon: AlertTriangle },
     { path: "/vulnerabilities", label: "Vulnerabilities", icon: FileSearch },
-    { path: "/Exploitation", label: "Exploitation", icon: Shield },
-    { path: "/reconnaisance", label: "Reconnaisance", icon: Bell },
     { path: "/settings", label: "Settings", icon: Settings },
   ];
 

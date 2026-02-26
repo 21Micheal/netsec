@@ -1,11 +1,12 @@
 import { io, Socket } from 'socket.io-client'
+import { SOCKET_URL } from '../config/runtime'
 
 class SocketService {
   private socket: Socket | null = null
 
   connect() {
     if (!this.socket) {
-      this.socket = io('http://localhost:5000', {
+      this.socket = io(SOCKET_URL, {
         transports: ['websocket', 'polling'],
       })
 

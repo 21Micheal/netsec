@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { SocketEvent } from '../types';
-
-const SOCKET_URL = 'http://localhost:5000';
+import { SOCKET_URL } from '../config/runtime';
 
 export const useSocket = () => {
   const socketRef = useRef<Socket | null>(null);

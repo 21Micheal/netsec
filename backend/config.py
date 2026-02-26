@@ -25,3 +25,7 @@ class Config:
 
     # Socket.IO config
     SOCKETIO_MESSAGE_QUEUE = CELERY_BROKER_URL
+
+    # Auth / RBAC
+    AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower() in {"1", "true", "yes"}
+    ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("ACCESS_TOKEN_TTL_SECONDS", "43200"))  # 12h

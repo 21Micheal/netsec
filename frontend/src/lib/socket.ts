@@ -1,8 +1,7 @@
 /// <reference types="vite/client" />
 // src/lib/socket.ts
 import { io } from "socket.io-client";
-
-const SOCKET_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+import { SOCKET_URL } from "../config/runtime";
 
 export const socket = io(SOCKET_URL, {
   transports: ["websocket"],

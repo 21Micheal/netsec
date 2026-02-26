@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../../config/runtime";
 
 export default function WebScanForm({ onCreated }: { onCreated?: () => void }) {
   const [url, setUrl] = useState("");
@@ -10,7 +11,7 @@ export default function WebScanForm({ onCreated }: { onCreated?: () => void }) {
     e.preventDefault();
     setLoading(true);
     try {
-      await axios.post("http://localhost:5000/api/webscans", { url, profile });
+      await axios.post(`${API_BASE_URL}/web-scans`, { url, profile });
       setUrl("");
       if (onCreated) onCreated();
     } catch (err) {

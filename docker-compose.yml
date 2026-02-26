@@ -5,15 +5,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: development
+      target: production
     ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_BASE_URL=http://localhost:5000
+      - "3000:80"
     container_name: netsec_frontend
-    volumes:
-      - ./frontend:/frontend
-      - /frontend/node_modules
     depends_on:
       - backend
     networks:
@@ -31,6 +26,8 @@ services:
       - FLASK_APP=manage.py
       - FLASK_ENV=development
       - SECRET_KEY=dev_secret_key_change_in_production
+      - AUTH_REQUIRED=true
+      - ACCESS_TOKEN_TTL_SECONDS=43200
     container_name: netsec_backend
     volumes:
       - ./backend:/app
@@ -50,6 +47,8 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/netsec_db
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=dev_secret_key_change_in_production
+      - AUTH_REQUIRED=false
+      - ACCESS_TOKEN_TTL_SECONDS=43200
     volumes:
       - ./backend:/app
     depends_on:
@@ -73,8 +72,6 @@ services:
       - db_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     container_name: netsec_db
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d netsec_db"]
       interval: 5s
@@ -86,8 +83,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: netsec_redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

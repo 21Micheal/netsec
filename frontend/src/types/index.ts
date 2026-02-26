@@ -25,7 +25,7 @@ export interface ScanResult {
   service?: string;
   version?: string;
   raw_output?: any;
-  discovered_at: string;
+  created_at: string;
 }
 
 export interface WebScanResult {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useSocket } from "../hooks/useSocket";
+import { API_BASE_URL } from "../../config/runtime";
 
 interface ScanJob {
   id: string;
@@ -18,7 +19,7 @@ const ScanPage: React.FC = () => {
   // Fetch initial scans
   const fetchScans = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/scans/scans");
+      const res = await fetch(`${API_BASE_URL}/scans/`);
       const data = await res.json();
       setScans(data);
     } catch (err) {

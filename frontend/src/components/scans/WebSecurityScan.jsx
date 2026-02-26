@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Shield, Globe, Bug, ScrollText } from "lucide-react";
 import { motion } from "framer-motion";
+import { API_BASE_URL, SOCKET_URL } from "../../config/runtime";
 
 export default function WebSecurityScan() {
   const [url, setUrl] = useState("");
@@ -16,7 +17,7 @@ export default function WebSecurityScan() {
 
   // Initialize socket connection
   useEffect(() => {
-    const newSocket = io("http://localhost:5000");
+    const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
 
     newSocket.on("scan_update", (data) => {
@@ -71,7 +72,7 @@ export default function WebSecurityScan() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:5000/api/web-scans", {
+      const res = await fetch(`${API_BASE_URL}/web-scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, profile: "web" }),
@@ -96,7 +97,7 @@ export default function WebSecurityScan() {
 
   const fetchResults = async (jobId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/scans/scan-jobs/${jobId}/results`);
+      const res = await fetch(`${API_BASE_URL}/scans/scan-jobs/${jobId}/results`);
       const data = await res.json();
       
       if (res.ok) {
